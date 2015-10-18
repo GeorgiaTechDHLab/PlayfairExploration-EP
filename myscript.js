@@ -17,7 +17,7 @@ var height = 800 - margin.top - margin.bottom,
 var yScale = d3.scale.linear().range([height,0]);
 var xScale = d3.time.scale().range([0, width]);
 
-//creates a list for the dropdown options bar out of all of the different country names.
+//creates options of country names for the select box
 function addList(){
     var select = document.getElementById("country");
     for(var i = 0; i <= countryNames.length; ++i) {
@@ -26,7 +26,33 @@ function addList(){
         select.add(option, 0);
       }
       $('#country option[value="European Union"]').prop('selected',true); //sets the selected country to be EU
+      $('#country option[value="undefined"]').remove(); //for some reason, "undefined" is the first entry. we must remove it after the fact
      }
+
+//a function that wraps the text for the label inside the Graph title circle. 
+function wrap(text, width) {
+  text.each(function() {
+    var text = d3.select(this),
+        words = text.text().split(/\s+/).reverse(),
+        word,
+        line = [],
+        lineNumber = 0,
+        lineHeight = 30, // ems
+        y = text.attr("y"),
+        dy = 10,
+        tspan = text.text(null).append("tspan").attr("x", 0).attr("y", y).attr("dy", dy);
+    while (word = words.pop()) {
+      line.push(word);
+      tspan.text(line.join(" "));
+      if (tspan.node().getComputedTextLength() > width) {
+        line.pop();
+        tspan.text(line.join(" "));
+        line = [word];
+        tspan = text.append("tspan").attr("x", 0).attr("y", y).attr("dy", ++lineNumber * lineHeight + dy).text(word);
+      }
+    }
+  });
+}
 
 //when a new country is selected, this function removes all objects with the class "currValue" and calls drawChart with the ctycode of the country selected.
 $("#country").change(function(){
@@ -38,15 +64,22 @@ $("#country").change(function(){
     })    
 })
 
+//creating a D3 tick formatter for later use
+//returns y-axis tickmark labels formatted according to historical visualization
+    var tickFormatterY = function(tickVal){
+        if((tickVal % 1000) === 0){ //if the value is an even billion but not 1 billion, add an s
+            return (tickVal*1000000/1000000000 );
+        }else{ //return fractions of billion
+            return (tickVal/1000);
+        }
+    };
+
 //creating the "canvas" to draw on. an svg element
-var canvas = d3.select('#canvasSVG')//.append('svg') normally you append svg to a div here, 
-//but due to the fade-in functionality, we had to create the svg in the .html file
-    //.style('background', 'mistyrose')
-    .style('background-image',"url('bkg.jpg')")
+var canvas = d3.select('#canvasDiv').append('svg') 
+    .style('background-image',"url('bkg.jpg')") //style directly in d3 instead of in css file
     .style('background-size',"1200px 800px")
     .attr('width', width + margin.left + margin.right)
     .attr('height', height + margin.top + margin.bottom)
-    //.attr("filter", "url(#inset-shadow-rose)")
     
 
 //rectangular borders around graph
@@ -105,6 +138,8 @@ function drawChart(ctyCode){
     xmin = 5000;
     xmax = 0;
     ymax = 0;
+
+    //must go through array to get min/max because I can't do d3.max(currdata.year) because currdata is no longer a csv format. it's an array of objects.
     for (i in currdata)
     {
         if(currdata[i].year > xmax)
@@ -192,18 +227,15 @@ function drawChart(ctyCode){
                                 .y1(height)
                                 .interpolate("basis");
 
-      //populate the defs html tag                          
-    var defs = chart.append('defs').attr("class", "currValue"); //defs is a d3 tag just like svg, path, or rect
-
-    //add some clipPaths inside defs
-    defs.append("clipPath")
+    //define clipping paths
+    chart.append("clipPath")
         .attr("id", "clip-import")
         .attr("class", "currValue")
         .append("path")
         .datum(currdata)
         .attr("d", areaAboveImportLine);
 
-    defs.append("clipPath")
+    chart.append("clipPath")
         .attr("id", "clip-export")
         .attr("class","currValue")
         .append("path")
@@ -223,7 +255,7 @@ function drawChart(ctyCode){
             .attr("d", areaBelowExportLine(currdata)) //instead of using "datum", you can also pass in currdata to the line function
             .attr("clip-path", "url(#clip-import)")
             .attr("class", "currValue")
-            .attr("fill", "green") //fill color when exports>imports
+            .attr("fill", "#ABAF7B") //fill color when exports>imports
             .attr("opacity", .5);
 
 //*********************************************CREATE AXIS************************************//
@@ -231,9 +263,9 @@ function drawChart(ctyCode){
     var yAxis = d3.svg.axis()
         .scale(yScale)
         .orient('right')
-        .ticks(20)
-        .tickSize(-width,0,0) //creates a grid by making the ticks the width of the chart
-
+        .ticks(20) //always have 20 tick marks
+        .tickSize(-width,0) //creates a grid by making the ticks the width of the chart
+       // .tickFormat()
     //append a group for y axis
     var yGuide = canvas.append('g')//use the yGuide variable to actually display the axis in the chart
         .attr('transform','translate('+ (width + margin.left) + ',' + margin.top + ')')
@@ -241,13 +273,27 @@ function drawChart(ctyCode){
         .call(yAxis)
         //yAxis.ticks() returns an array with one element equal to the number of ticks
         //console.log("all the points", yAxis.scale().ticks(yAxis.ticks()[0]));
+        d3.select(yGuide.selectAll(".tick")[0][0])
+                    .attr('visibility','hidden'); //hides first tick
 
-    //make every 5th tick have a thicker stroke. TODO: actually every whole million
+    //make every 5th tick have a thicker stroke. TODO: maybe make it based on the values?
     d3.selectAll("g.y.axis g.tick") //select all g elements with both class y and axis, and g elements with class tick
-        .style("stroke-width",function(d,i){
-            if(i%5 == 0)
+         .style("stroke-width",function(d,i){
+            if(i%5 == 0){
                 return 2;
+            }
         })
+        .selectAll("text").remove()
+    yGuide.selectAll(".tick") //g.x.axis g.tick is the same as yGuide.tick
+        .append("text")
+        .text(function(d,i){
+            if(i%5 == 0){
+                return tickFormatterY(d) + " Billion";
+            }
+            else
+                return tickFormatterY(d);
+        })
+        //TODO append the word billion
 
     var xAxis = d3.svg.axis()
         .scale(xScale)
@@ -260,8 +306,8 @@ function drawChart(ctyCode){
         .call(xAxis) //.call is what displays the ticks and labels
 
     //abbreviated years as labels
-    d3.selectAll("g.x.axis g.tick").selectAll("text").remove() //remove tick labels
-    d3.selectAll("g.x.axis g.tick")
+    xGuide.selectAll("text").remove() //remove tick labels
+    xGuide.selectAll(".tick") //g.x.axis g.tick is the same as xGuide.tick
         .append("text") //add back re-formated tick labels
         .attr("dy",15)
         .text(function(d){ //d for ticks is the value of the tick
@@ -276,12 +322,12 @@ function drawChart(ctyCode){
     chart.append('text')
         .attr('text-anchor','middle')
         .attr('transform',rotateTranslate) //text must be rotate parallel to y-axis
-        .style("font-weight","bold") //alternatively, could have added a class and styled in mystyle.css
-        .text('Money (millions of dollars)') //labeled w/millions instead of formatting y-axis b/c easier
+        .style("font-family",'Times New Roman')
+        .text('Money (US dollars)')
     chart.append('text')
         .attr('text-anchor','middle')
         .attr('transform','translate(' + width/2 + ',' + -25 + ')')
-        .style("font-weight","bold")
+        .style("font-family",'Times New Roman')
         .text('Time')
 
 
@@ -289,6 +335,7 @@ function drawChart(ctyCode){
 //*********************************************WRITE TEXT************************************//
     //TODO: text in area. "BALANCE in FAVOR of USA" (not possible)
     //TODO: change offset based on intersection of paths. (not possible)
+    //TODO: wrap text inside circle (note: D3 does a bad job of making SVG elements aware of eachother)
 
     //text along line graph
     var expText = chart.append('text').attr("dy", "-10px")
@@ -310,7 +357,9 @@ function drawChart(ctyCode){
         .style("font-size",'20px')
         .text("Line of Imports to USA") //must say to USA b/c we cant put the "in favor of" text in the area
 
-//make a pattern for circle bkg. this is how you add a background to an svg element
+//make a pattern for circle bkg. patterns are how you add a background to an svg element
+var defs = chart.append('defs').attr("class", "currValue"); //first you have to instantiate the defs tag so we can append a pattern to it
+//defs is used when you want to embed definitions to reuse inside an svg element
     defs.append("pattern")
         .attr("id","bkg")
         .attr("patternUnits","userSpaceOnUse")
@@ -321,36 +370,38 @@ function drawChart(ctyCode){
             .attr('width',700)
             .attr('height',700)
             .attr('y',-100)
+
     //circle with title text
     var title = canvas.append("g")
+        .attr("class", "currValue")
     title.append("ellipse")
             .attr("id", "currValue")
-            .attr("cx", 200)
+            .attr("cx", 210)
             .attr("cy", 150)
-            .attr("rx", 170)
+            .attr("rx", 180)
             .attr("ry",120)
             .attr("fill", "url(#bkg)")
             .attr("stroke", "black")
             .attr("stroke-width", 1);
     title.append("text")
         .attr('text-anchor','middle')
-        .attr('transform','translate(' + 200 + ',' + 115 + ')')
-        .style('font-family','oldschool')
-        .style('font-size','30px')
+        .attr('transform','translate(' + 210 + ',' + 115 + ')')
+        .style('font-family','maranalloregular')
+        .style('font-size','xx-large')
         .text("Exports and Imports")
     title.append("text")
         .attr('text-anchor','middle')
-        .attr('transform','translate(' + 200 + ',' + 150 + ')')
-        .style('font-family','cursive')
-        .style('font-size','40px')
+        .attr('transform','translate(' + 210 + ',' + 155 + ')')
+        .style('font-family','chancery_cursiveitalic')
+        .style('font-size','x-large')
         .text("to and from all")
     title.append("text")
         .attr('text-anchor','middle')
-        .attr('transform','translate(' + 200 + ',' + 200 + ')')
-        .style('font-family','oldschool')
-        .style('font-size','30px')
-        .text(ctyName)
-
+        .attr('transform','translate(' + 210 + ',' + 180 + ')')
+        .style('font-family','maranalloregular')
+        .style('font-size','xx-large')
+        .text(ctyName) //count characters, if greater than #, line break
+        .call(wrap,330)
  } //end drawChart
 
 
